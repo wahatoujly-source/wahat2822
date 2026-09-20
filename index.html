@@ -2,6 +2,9 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover">
 <meta name="theme-color" content="#0f766e">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -466,8 +469,20 @@ var o=[];var l=Array.isArray(e);for(f=n.s.c;f<=n.e.c;++f)s[f]=ya(f);for(var c=n.
 (function(){
 "use strict";
 
-/* إعداد النشر: عند ملء main تُحمَّل البيانات تلقائياً عند فتح الأداة (وتُدمج ملفات merge) */
-var CONFIG = { main:"aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL3dhaGF0b3VqbHktc291cmNlL3dhaGF0MjgyMi9tYWluLzIyLnhsc3g=", merge:["aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL3dhaGF0b3VqbHktc291cmNlL3dhaGF0MjgyMi9tYWluLzIzLnhsc3g="], enc:true };
+/* إعداد النشر: base = رابط مجلد البيانات على الخادم (يُملأ في نسخة النشر، مشفّر).
+   عند ملئه تُحمَّل ملفات الشبابيك المسموح بها للمستخدم تلقائياً عند الفتح. */
+var CONFIG = { base:"aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL3dhaGF0b3VqbHktc291cmNlL3dhaGF0MjgyMi9tYWluLw==", enc:true };
+
+/* سجلّ الشبابيك: لكل شباك اسمه وملفّاه (رئيسي ثم إضافي).
+   لإضافة شباك جديد: ارفع ملفّيه بنفس الأسماء هنا (لا حاجة لأي تعديل آخر). */
+var BRANCHES = {
+  "2822": { name:"جالو",          files:["22.xlsx","23.xlsx"] },
+  "2820": { name:"أوجلة",         files:["2820-1.xlsx","2820-2.xlsx"] },
+  "2819": { name:"إجخرة",         files:["2819-1.xlsx","2819-2.xlsx"] },
+  "2821": { name:"تازربو",        files:["2821-1.xlsx","2821-2.xlsx"] },
+  "2823": { name:"مرادة",         files:["2823-1.xlsx","2823-2.xlsx"] },
+  "2825": { name:"شركات الواحات", files:["2825-1.xlsx","2825-2.xlsx"] }
+};
 /* الصلاحية: يتوقف التطبيق بعد هذا التاريخ حتى يُدخل المسؤول رمزه وتاريخاً جديداً.
    للتجديد للجميع: غيّر VALID_UNTIL هنا وارفع الملف. ADMIN_CODE هو رمز المسؤول (غيّره). */
 var VALID_UNTIL = "2026-11-15";
@@ -476,13 +491,15 @@ var ADMIN_CODE  = "2822";
    يختار المستخدم اسمه من القائمة ويُدخل كلمة مروره.
    لإضافة/حذف مستخدم أو تغيير كلمة مرور: عدّل هنا وارفع الملف.
    اترك USERS فارغة [] لتعطيل قفل الدخول تماماً. */
+/* المستخدمون: branches = "all" لرؤية كل الشبابيك، أو قائمة أرقام شبابيك محدّدة.
+   لإضافة مستخدم لقسم جديد: أضف سطراً وحدّد branches بأرقام شبابيكه. */
 var USERS = [
-  { name:"عبدالسلام حمد",   code:"2880" },
-  { name:"محمد الرباع",      code:"2844" },
-  { name:"ابراهيم سلطان",    code:"3372" },
-  { name:"صالح عبدالحفيظ",   code:"2810" },
-  { name:"احمد صويصة",       code:"2815" },
-  { name:"عبدالله سعد",      code:"2833" }
+  { name:"ابراهيم سلطان",   code:"3372", branches:"all" },
+  { name:"عبدالسلام حمد",   code:"2880", branches:"all" },
+  { name:"محمد الرباع",      code:"2844", branches:"all" },
+  { name:"صالح عبدالحفيظ",   code:"2810", branches:["2822"] },
+  { name:"احمد صويصة",       code:"2815", branches:["2822"] },
+  { name:"عبدالله سعد",      code:"2833", branches:["2822"] }
 ];
 /* إعدادات الرسالة الجاهزة */
 var DEPT_NAME = "جالو";               // اسم القسم الذي يظهر في الرسالة
@@ -763,7 +780,9 @@ function populateFilters(){
     any=true; branchWrap.style.display="block"; $("branchLabel").textContent=branchCol;
     var bsel=$("branchSel"); bsel.innerHTML='<option value="">كل الشبابيك</option>';
     bvals.slice(0,60).forEach(function(v){
-      var o=document.createElement("option"); o.value=v; o.textContent=v; bsel.appendChild(o);
+      var o=document.createElement("option"); o.value=v;
+      o.textContent=(BRANCHES[v]&&BRANCHES[v].name)?(v+" — "+BRANCHES[v].name):v;
+      bsel.appendChild(o);
     });
   } else { branchWrap.style.display="none"; branchFilter=""; }
   if(catCol){
@@ -1026,28 +1045,32 @@ function updateStatus(online){
 /* ============================================================
    6) التخزين المحلي (IndexedDB) — ليعمل دون إنترنت
    ============================================================ */
+// مفتاح تخزين خاص بكل مستخدم (حتى لا يرى مستخدمٌ بيانات مستخدم آخر دون إنترنت)
+function storeKey(){ return "ds_"+(currentUser()||"anon"); }
 function idb(){return new Promise(function(res,rej){
   var r=indexedDB.open(DB_NAME,1);
   r.onupgradeneeded=function(){r.result.createObjectStore(STORE)};
   r.onsuccess=function(){res(r.result)}; r.onerror=function(){rej(r.error)};
 })}
 function saveLocal(){
+  var k=storeKey();
   var payload={headers:headers, rows:rows.map(function(r){
     var o={}; headers.forEach(function(c){o[c]=r[c]}); return o;
   }), savedAt:Date.now(), title:document.getElementById('appTitle').textContent};
   idb().then(function(db){
     try{
       var tx=db.transaction(STORE,"readwrite");
-      tx.objectStore(STORE).put(payload,KEY);
+      tx.objectStore(STORE).put(payload,k);
     }catch(e){}
   }).catch(function(){});
 }
 function loadLocal(){
+  var k=storeKey();
   return idb().then(function(db){
     return new Promise(function(res){
       try{
         var tx=db.transaction(STORE,"readonly");
-        var g=tx.objectStore(STORE).get(KEY);
+        var g=tx.objectStore(STORE).get(k);
         g.onsuccess=function(){res(g.result||null)};
         g.onerror=function(){res(null)};
       }catch(e){res(null)}
@@ -1055,8 +1078,9 @@ function loadLocal(){
   }).catch(function(){return null});
 }
 function clearLocal(){
+  var k=storeKey();
   return idb().then(function(db){
-    try{var tx=db.transaction(STORE,"readwrite");tx.objectStore(STORE).delete(KEY);}catch(e){}
+    try{var tx=db.transaction(STORE,"readwrite");tx.objectStore(STORE).delete(k);}catch(e){}
   }).catch(function(){});
 }
 
@@ -1298,6 +1322,54 @@ $("appSub").addEventListener("click",function(){
 $("loginBtn").addEventListener("click",tryLogin);
 $("loginCode").addEventListener("keydown",function(e){ if(e.key==="Enter") tryLogin(); });
 
+/* ---- تحميل بيانات الشبابيك حسب صلاحية المستخدم ---- */
+function allowedBranchCodes(){
+  var u=findUser(currentUser());
+  if(!u) return [];
+  if(u.branches==="all") return Object.keys(BRANCHES);
+  return u.branches||[];
+}
+function branchFileUrls(){
+  if(!CONFIG.base) return [];
+  var base=cfgUrl(CONFIG.base);
+  var urls=[];
+  allowedBranchCodes().forEach(function(code){
+    var b=BRANCHES[code]; if(!b) return;
+    (b.files||[]).forEach(function(f){ urls.push(base+f); });
+  });
+  return urls;
+}
+// تحميل كل ملفات الشبابيك المسموح بها ودمجها (تُتجاهَل الملفات غير الموجودة)
+function loadBranchData(){
+  var urls=branchFileUrls();
+  if(!urls.length){ if(!rows.length) render(); return; }
+  loaderShow(true);
+  var parsedList=[], seq=Promise.resolve();
+  urls.forEach(function(u){
+    seq=seq.then(function(){
+      return fetch(u,{cache:"no-store"}).then(function(r){ return r.ok?r.arrayBuffer():null; })
+        .then(function(buf){
+          if(!buf) return;
+          try{ parsedList.push(parseSheet(new Uint8Array(buf),"array")); }
+          catch(e){ try{ parsedList.push(parseSheet(new TextDecoder("utf-8").decode(buf),"string")); }catch(e2){} }
+        }).catch(function(){});
+    });
+  });
+  return seq.then(function(){
+    loaderShow(false);
+    if(parsedList.length){
+      rows=[]; headers=[]; byKey=Object.create(null);
+      parsedList.forEach(function(p){ ingest(p,"merge"); });
+      afterLoad(rows.length,true);
+      toast("تم تحميل البيانات");
+    } else if(!rows.length){
+      resultsEl.innerHTML='<div class="state"><div class="state-ico">📡</div>'+
+        '<div class="state-title">لا توجد بيانات متاحة</div>'+
+        '<div>تحقّق من الاتصال، أو لم تُرفع ملفات شبابيكك بعد.</div></div>';
+    }
+  });
+}
+
 // bottom sheet
 function openSheet(){overlay.classList.add("show");sheet.classList.add("show");}
 function closeSheet(){overlay.classList.remove("show");sheet.classList.remove("show");sheetMsg.classList.remove("show");}
@@ -1366,18 +1438,18 @@ function cfgUrl(u){ if(!u) return u; try{ return CONFIG.enc?decodeURIComponent(e
 
 function startApp(){
   showUserBadge();
-  // نسخة الرابط: إخفاء طريقة تحميل الملف والرابط تماماً عن الموظفين
-  if(CONFIG.main){
+  // نسخة النشر: إخفاء طريقة تحميل الملف والرابط تماماً عن الموظفين
+  if(CONFIG.base){
     var fs=$("fileSec"), od=$("orDivider"), db=$("dataBtn");
     if(fs) fs.style.display="none";
     if(od) od.style.display="none";
-    if(db) db.style.display="none";   // إخفاء زر مصدر البيانات (لا يظهر الرابط)
+    if(db) db.style.display="none";
   }
   // رابط محفوظ
   var savedUrl=localStorage.getItem("jibaya_url"); if(savedUrl) $("urlInput").value=savedUrl;
   var af=localStorage.getItem("jibaya_autofetch")==="1"; $("autoFetch").checked=af;
 
-  // استرجاع بيانات محفوظة للعمل دون إنترنت
+  // استرجاع بيانات محفوظة (مخصّصة لهذا المستخدم) للعمل دون إنترنت
   loadLocal().then(function(saved){
     if(saved && saved.rows && saved.rows.length){
       headers=saved.headers;
@@ -1397,16 +1469,12 @@ function startApp(){
     } else {
       render();
     }
-    // نسخة النشر: تحميل تلقائي للبيانات المثبّتة عند الفتح
-    if(CONFIG.main){
-      if(navigator.onLine){
-        var chain=[{url:cfgUrl(CONFIG.main),mode:"replace"}];
-        (CONFIG.merge||[]).forEach(function(u){ chain.push({url:cfgUrl(u),mode:"merge"}); });
-        loadUrlChain(chain);
-      }
+    // نسخة النشر: تحميل ملفات شبابيك المستخدم تلقائياً
+    if(CONFIG.base){
+      if(navigator.onLine){ loadBranchData(); }
       // دون إنترنت: البيانات المستعادة من التخزين تكفي
     }
-    // تحديث تلقائي من رابط أدخله المستخدم
+    // تحديث تلقائي من رابط أدخله المستخدم (النسخة التجريبية)
     else if(af && savedUrl && navigator.onLine){ fetchUrl(savedUrl,true); }
     else if(!rows.length && !savedUrl){ setTimeout(openSheet,400); }
   });
