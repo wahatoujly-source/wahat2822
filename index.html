@@ -255,9 +255,9 @@
   .lock-ico{font-size:3rem;margin-bottom:10px}
   .lock-box h2{margin:0 0 8px;font-size:1.2rem}
   .lock-box p{color:var(--muted);font-size:.9rem;margin:0 0 18px}
-  .lock-box input{width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);
+  .lock-box input,.lock-box select{width:100%;padding:12px 14px;border-radius:12px;border:1.5px solid var(--border);
     background:var(--bg);color:var(--text);font-family:inherit;font-size:1rem;margin-bottom:10px;text-align:center}
-  .lock-box input:focus{outline:none;border-color:var(--brand)}
+  .lock-box input:focus,.lock-box select:focus{outline:none;border-color:var(--brand)}
   .lock-box .btn{margin-top:4px}
   /* قسم المحدّدين المثبّت */
   .sel-head{font-size:.85rem;font-weight:800;color:var(--brand-d);margin:2px 2px 8px;
@@ -410,8 +410,9 @@
   <div class="lock-box">
     <div class="lock-ico">🔐</div>
     <h2>تسجيل الدخول</h2>
-    <p>أدخل رمز الدخول للمتابعة.</p>
-    <input type="password" id="loginCode" placeholder="رمز الدخول" inputmode="numeric" autocomplete="off">
+    <p>اختر اسمك وأدخل كلمة المرور.</p>
+    <select id="loginUser"><option value="">— اختر المستخدم —</option></select>
+    <input type="password" id="loginCode" placeholder="كلمة المرور" inputmode="numeric" autocomplete="off">
     <button class="btn btn-primary" id="loginBtn">دخول</button>
     <div class="msg" id="loginErr" style="margin-top:10px"></div>
   </div>
@@ -471,9 +472,18 @@ var CONFIG = { main:"aHR0cHM6Ly9yYXcuZ2l0aHVidXNlcmNvbnRlbnQuY29tL3dhaGF0b3VqbHk
    للتجديد للجميع: غيّر VALID_UNTIL هنا وارفع الملف. ADMIN_CODE هو رمز المسؤول (غيّره). */
 var VALID_UNTIL = "2026-11-15";
 var ADMIN_CODE  = "2822";
-/* قفل الدخول: رمز يطلبه التطبيق عند الفتح (اتركه "" لتعطيل القفل).
-   لتغيير الرمز وإجبار الجميع على إعادة الدخول: غيّره هنا وارفع الملف. */
-var ACCESS_CODE = "1234";
+/* قفل الدخول متعدّد المستخدمين: قائمة أسماء وكلمات مرور.
+   يختار المستخدم اسمه من القائمة ويُدخل كلمة مروره.
+   لإضافة/حذف مستخدم أو تغيير كلمة مرور: عدّل هنا وارفع الملف.
+   اترك USERS فارغة [] لتعطيل قفل الدخول تماماً. */
+var USERS = [
+  { name:"عبدالسلام حمد",   code:"2880" },
+  { name:"محمد الرباع",      code:"2844" },
+  { name:"ابراهيم سلطان",    code:"3372" },
+  { name:"صالح عبدالحفيظ",   code:"2810" },
+  { name:"احمد صويصة",       code:"2815" },
+  { name:"عبدالله سعد",      code:"2833" }
+];
 /* إعدادات الرسالة الجاهزة */
 var DEPT_NAME = "جالو";               // اسم القسم الذي يظهر في الرسالة
 var CURRENCY  = "د.ل";                // عملة العرض
@@ -1254,17 +1264,37 @@ $("unlockBtn").addEventListener("click",function(){
   toast("تم التفعيل حتى "+nd); startApp();
 });
 
-/* ---- قفل الدخول ---- */
-function needLogin(){ return ACCESS_CODE && localStorage.getItem("jibaya_auth")!==ACCESS_CODE; }
-function showLogin(){ $("loginScreen").style.display="grid"; setTimeout(function(){$("loginCode").focus();},200); }
-function tryLogin(){
-  var v=$("loginCode").value.trim(), err=$("loginErr");
-  if(v===ACCESS_CODE){
-    localStorage.setItem("jibaya_auth",ACCESS_CODE);
-    $("loginScreen").style.display="none"; err.className="msg";
-    startApp();
-  } else { err.className="msg show err"; err.textContent="رمز الدخول غير صحيح."; }
+/* ---- قفل الدخول متعدّد المستخدمين ---- */
+function findUser(name){ for(var i=0;i<USERS.length;i++){ if(USERS[i].name===name) return USERS[i]; } return null; }
+function needLogin(){
+  if(!USERS.length) return false;
+  var u=findUser(localStorage.getItem("jibaya_user")||"");
+  return !(u && localStorage.getItem("jibaya_pass")===u.code);
 }
+function currentUser(){ return localStorage.getItem("jibaya_user")||""; }
+function showLogin(){
+  var sel=$("loginUser"); sel.innerHTML='<option value="">— اختر المستخدم —</option>';
+  USERS.forEach(function(u){ var o=document.createElement("option"); o.value=u.name; o.textContent=u.name; sel.appendChild(o); });
+  $("loginScreen").style.display="grid";
+}
+function tryLogin(){
+  var name=$("loginUser").value, pass=$("loginCode").value.trim(), err=$("loginErr");
+  if(!name){ err.className="msg show err"; err.textContent="اختر اسم المستخدم أولاً."; return; }
+  var u=findUser(name);
+  if(u && pass===u.code){
+    localStorage.setItem("jibaya_user",name); localStorage.setItem("jibaya_pass",u.code);
+    $("loginScreen").style.display="none"; err.className="msg"; $("loginCode").value="";
+    showUserBadge(); startApp();
+  } else { err.className="msg show err"; err.textContent="كلمة المرور غير صحيحة."; }
+}
+function showUserBadge(){ var n=currentUser(); if(n){ $("appSub").textContent="المستخدم: "+n+" — اضغط للخروج"; $("appSub").style.cursor="pointer"; } }
+$("appSub").addEventListener("click",function(){
+  if(!currentUser()) return;
+  if(confirm("تسجيل الخروج وتغيير المستخدم؟")){
+    localStorage.removeItem("jibaya_user"); localStorage.removeItem("jibaya_pass");
+    location.reload();
+  }
+});
 $("loginBtn").addEventListener("click",tryLogin);
 $("loginCode").addEventListener("keydown",function(e){ if(e.key==="Enter") tryLogin(); });
 
@@ -1335,6 +1365,7 @@ function boot(){
 function cfgUrl(u){ if(!u) return u; try{ return CONFIG.enc?decodeURIComponent(escape(atob(u))):u; }catch(e){ return u; } }
 
 function startApp(){
+  showUserBadge();
   // نسخة الرابط: إخفاء طريقة تحميل الملف والرابط تماماً عن الموظفين
   if(CONFIG.main){
     var fs=$("fileSec"), od=$("orDivider"), db=$("dataBtn");
