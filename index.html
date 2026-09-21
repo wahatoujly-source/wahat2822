@@ -300,6 +300,7 @@
   .inv-f input:focus,.inv-f select:focus{outline:none;border-color:var(--brand)}
   .inv-out{background:var(--brand-l);border-radius:12px;padding:14px;margin-bottom:14px}
   .inv-row{display:flex;justify-content:space-between;padding:5px 0;font-size:.92rem;color:var(--text)}
+  .inv-row.sub{border-top:1px dashed var(--border);margin-top:4px;padding-top:8px;font-weight:800}
   .inv-row.total{border-top:2px solid var(--brand);margin-top:8px;padding-top:10px;font-weight:800;font-size:1.2rem;color:var(--brand-d)}
   :root[data-theme="dark"] .inv-row.total{color:var(--brand)}
   @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .inv-row.total{color:var(--brand)}}
@@ -442,6 +443,7 @@
     <label class="inv-f"><span>القراءة الحالية</span><input type="number" id="invCurr" inputmode="decimal" placeholder="أدخل القراءة"></label>
     <label class="inv-f"><span>المضاعف</span><input type="number" id="invMult" inputmode="decimal" value="1"></label>
     <label class="inv-f"><span>التعريفة</span><select id="invTariff"></select></label>
+    <label class="inv-f" style="grid-column:1/-1"><span>الدين السابق</span><input type="number" id="invPrevDebt" inputmode="decimal" value="0"></label>
   </div>
   <div class="inv-warn" id="invWarn">⚠️ القراءة الحالية أقل من السابقة — تحقّق من الرقم.</div>
   <div class="inv-out" id="invOut"></div>
@@ -1347,22 +1349,28 @@ function invData(){
   var prev=parseFloat($("invPrev").value)||0;
   var currRaw=$("invCurr").value.trim(), curr=parseFloat(currRaw);
   var mult=parseFloat($("invMult").value)||1;
+  var prevDebt=parseFloat($("invPrevDebt").value)||0;
   var tk=$("invTariff").value, t=TARIFFS.filter(function(x){return x.key===tk})[0]||TARIFFS[0];
   var hasCurr = currRaw!=="" && !isNaN(curr);
   var kwh = hasCurr ? (curr-prev)*mult : 0;
-  var energy = kwh*t.rate, total = energy + STAMP_TAX + METER_FEE;
-  return {prev:prev,curr:hasCurr?curr:null,mult:mult,tariff:t,kwh:kwh,energy:energy,total:total,hasCurr:hasCurr};
+  var energy = kwh*t.rate;
+  var invoiceValue = energy + STAMP_TAX + METER_FEE;   // قيمة الفاتورة الحالية
+  var grand = invoiceValue + prevDebt;                 // الإجمالي المطلوب
+  return {prev:prev,curr:hasCurr?curr:null,mult:mult,tariff:t,kwh:kwh,energy:energy,
+          prevDebt:prevDebt,invoiceValue:invoiceValue,grand:grand,hasCurr:hasCurr};
 }
 function computeInvoice(){
   var d=invData();
   $("invWarn").style.display=(d.hasCurr && d.kwh<0)?"block":"none";
-  function r(l,v){ return '<div class="inv-row"><span>'+l+'</span><span>'+v+'</span></div>'; }
+  function r(l,v,cls){ return '<div class="inv-row'+(cls?" "+cls:"")+'"><span>'+l+'</span><span>'+v+'</span></div>'; }
   var o="";
   o+=r("الاستهلاك", (d.hasCurr?fmtNum(d.kwh):"—")+" ك.و.س");
   o+=r("قيمة الاستهلاك × "+d.tariff.rate, (d.hasCurr?fmtNum(d.energy):"—")+" "+CURRENCY);
   o+=r("ضريبة الدمغة", fmtNum(STAMP_TAX)+" "+CURRENCY);
   o+=r("أجرة العداد", fmtNum(METER_FEE)+" "+CURRENCY);
-  o+='<div class="inv-row total"><span>الإجمالي</span><span>'+(d.hasCurr?fmtNum(d.total):"—")+" "+CURRENCY+'</span></div>';
+  o+=r("قيمة الفاتورة", (d.hasCurr?fmtNum(d.invoiceValue):"—")+" "+CURRENCY, "sub");
+  o+=r("الدين السابق", fmtNum(d.prevDebt)+" "+CURRENCY);
+  o+='<div class="inv-row total"><span>الإجمالي المطلوب</span><span>'+(d.hasCurr?fmtNum(d.grand):"—")+" "+CURRENCY+'</span></div>';
   $("invOut").innerHTML=o;
 }
 function invoiceText(){
@@ -1376,8 +1384,10 @@ function invoiceText(){
     "التعريفة: "+d.tariff.rate+" د.ل/ك.و.س\n"+
     "قيمة الاستهلاك: "+fmtNum(d.energy)+" "+CURRENCY+"\n"+
     "ضريبة الدمغة: "+fmtNum(STAMP_TAX)+" "+CURRENCY+"\n"+
-    "أجرة العداد: "+fmtNum(METER_FEE)+" "+CURRENCY+"\n————————————\n"+
-    "الإجمالي: "+fmtNum(d.total)+" "+CURRENCY+"\n\nنأمل تسديد القيمة. شكراً لتعاونكم.";
+    "أجرة العداد: "+fmtNum(METER_FEE)+" "+CURRENCY+"\n"+
+    "قيمة الفاتورة: "+fmtNum(d.invoiceValue)+" "+CURRENCY+"\n"+
+    "الدين السابق: "+fmtNum(d.prevDebt)+" "+CURRENCY+"\n————————————\n"+
+    "الإجمالي المطلوب: "+fmtNum(d.grand)+" "+CURRENCY+"\n\nنأمل تسديد القيمة. شكراً لتعاونكم.";
 }
 function openInvoice(row){
   invRow=row;
@@ -1387,6 +1397,7 @@ function openInvoice(row){
     (catCol?"<br>"+escapeHtml(String(row[catCol]||"")):"")+(ac&&row[ac]?" · "+escapeHtml(String(row[ac])):"");
   $("invPrev").value=isNaN(prev)?"":prev;
   $("invCurr").value=""; $("invMult").value=mult;
+  var pd = debtCol?debtNum(row[debtCol]):NaN; $("invPrevDebt").value=isNaN(pd)?0:pd;
   var sel=$("invTariff"); sel.innerHTML="";
   TARIFFS.forEach(function(t){ var op=document.createElement("option"); op.value=t.key; op.textContent=t.label; sel.appendChild(op); });
   sel.value=guessTariff(row);
@@ -1411,7 +1422,8 @@ function printInvoice(){
     tr("الاستهلاك",fmtNum(d.kwh)+" ك.و.س")+tr("التعريفة",d.tariff.rate+" د.ل/ك.و.س")+
     tr("قيمة الاستهلاك",fmtNum(d.energy)+" "+CURRENCY)+tr("ضريبة الدمغة",fmtNum(STAMP_TAX)+" "+CURRENCY)+
     tr("أجرة العداد",fmtNum(METER_FEE)+" "+CURRENCY)+
-    '<tr class="tot"><td>الإجمالي</td><td>'+fmtNum(d.total)+" "+CURRENCY+'</td></tr></table></body></html>';
+    tr("قيمة الفاتورة",fmtNum(d.invoiceValue)+" "+CURRENCY)+tr("الدين السابق",fmtNum(d.prevDebt)+" "+CURRENCY)+
+    '<tr class="tot"><td>الإجمالي المطلوب</td><td>'+fmtNum(d.grand)+" "+CURRENCY+'</td></tr></table></body></html>';
   var w=window.open("","_blank");
   if(!w){ toast("اسمح بالنوافذ المنبثقة للطباعة"); return; }
   w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{w.print();}catch(e){} },400);
