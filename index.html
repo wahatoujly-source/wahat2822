@@ -316,6 +316,7 @@
         <div class="h-title" id="appTitle">منظومة جباية الإيرادات</div>
         <div class="h-sub" id="appSub">بحث سريع في بيانات المشتركين</div>
       </div>
+      <button class="icon-btn" id="refreshBtn" title="تحديث (جلب أحدث نسخة)">🔄</button>
       <button class="icon-btn" id="installBtn" title="تثبيت التطبيق" style="display:none">⬇️</button>
       <button class="icon-btn" id="themeBtn" title="الوضع الليلي">🌙</button>
       <button class="icon-btn" id="dataBtn" title="مصدر البيانات">🗂️</button>
@@ -1552,6 +1553,12 @@ function openSheet(){overlay.classList.add("show");sheet.classList.add("show");}
 function closeSheet(){overlay.classList.remove("show");sheet.classList.remove("show");sheetMsg.classList.remove("show");}
 $("dataBtn").addEventListener("click",openSheet);
 overlay.addEventListener("click",closeSheet);
+// زر التحديث: يعيد التحميل متجاوزاً الذاكرة المؤقتة لجلب أحدث قالب وبيانات
+$("refreshBtn").addEventListener("click",function(){
+  toast("جارٍ جلب أحدث نسخة...");
+  var path=location.pathname.replace(/\/$/,"/")||"/";
+  setTimeout(function(){ location.replace(path+"?u="+Date.now()); },250);
+});
 function showSheetMsg(t,type){sheetMsg.textContent=t;sheetMsg.className="msg show "+type;}
 function loaderShow(b){loaderEl.classList.toggle("show",b);}
 
