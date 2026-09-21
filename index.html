@@ -282,6 +282,29 @@
   .ci-phone{font-size:.85rem;color:var(--muted);direction:ltr}
   .msg-preview{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;
     font-size:.85rem;white-space:pre-wrap;color:var(--text);margin:10px 0;max-height:180px;overflow:auto}
+  /* زر الفاتورة داخل البطاقة */
+  .inv-btn{display:block;width:100%;padding:10px;margin-bottom:10px;background:var(--brand-l);color:var(--brand-d);
+    border:none;border-radius:10px;font-weight:800;font-family:inherit;font-size:.9rem;cursor:pointer}
+  :root[data-theme="dark"] .inv-btn{color:var(--brand)}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .inv-btn{color:var(--brand)}}
+  /* شاشة الفاتورة */
+  .inv-who{background:var(--bg);border-radius:12px;padding:10px 12px;font-size:.9rem;margin-bottom:12px;line-height:1.9}
+  .inv-who b{color:var(--brand-d)}
+  :root[data-theme="dark"] .inv-who b{color:var(--brand)}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .inv-who b{color:var(--brand)}}
+  .inv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+  .inv-f{display:block}
+  .inv-f>span{display:block;font-size:.78rem;font-weight:700;color:var(--muted);margin-bottom:5px}
+  .inv-f input,.inv-f select{width:100%;padding:11px 12px;border-radius:10px;border:1.5px solid var(--border);
+    background:var(--bg);color:var(--text);font-family:inherit;font-size:.95rem}
+  .inv-f input:focus,.inv-f select:focus{outline:none;border-color:var(--brand)}
+  .inv-out{background:var(--brand-l);border-radius:12px;padding:14px;margin-bottom:14px}
+  .inv-row{display:flex;justify-content:space-between;padding:5px 0;font-size:.92rem;color:var(--text)}
+  .inv-row.total{border-top:2px solid var(--brand);margin-top:8px;padding-top:10px;font-weight:800;font-size:1.2rem;color:var(--brand-d)}
+  :root[data-theme="dark"] .inv-row.total{color:var(--brand)}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .inv-row.total{color:var(--brand)}}
+  .inv-warn{color:var(--danger);font-size:.85rem;font-weight:700;margin-bottom:10px;display:none}
+  .inv-actions{display:flex;flex-direction:column;gap:8px}
 </style>
 </head>
 <body>
@@ -408,6 +431,27 @@
   <div id="cList"></div>
 </div>
 
+<!-- شاشة إصدار الفاتورة -->
+<div class="overlay" id="invOverlay"></div>
+<div class="sheet" id="invSheet">
+  <div class="grabber"></div>
+  <h2>🧾 إصدار فاتورة تقريبية</h2>
+  <div class="inv-who" id="invWho"></div>
+  <div class="inv-grid">
+    <label class="inv-f"><span>القراءة السابقة</span><input type="number" id="invPrev" inputmode="decimal"></label>
+    <label class="inv-f"><span>القراءة الحالية</span><input type="number" id="invCurr" inputmode="decimal" placeholder="أدخل القراءة"></label>
+    <label class="inv-f"><span>المضاعف</span><input type="number" id="invMult" inputmode="decimal" value="1"></label>
+    <label class="inv-f"><span>التعريفة</span><select id="invTariff"></select></label>
+  </div>
+  <div class="inv-warn" id="invWarn">⚠️ القراءة الحالية أقل من السابقة — تحقّق من الرقم.</div>
+  <div class="inv-out" id="invOut"></div>
+  <div class="inv-actions">
+    <button class="btn btn-primary" id="invWa" style="background:#25d366">📲 إرسال عبر واتساب</button>
+    <button class="btn btn-ghost" id="invPrint">🖨️ طباعة الفاتورة</button>
+    <button class="btn btn-ghost" id="invCopy">📋 نسخ نص الفاتورة</button>
+  </div>
+</div>
+
 <!-- شاشة تسجيل الدخول -->
 <div class="lock" id="loginScreen" style="display:none">
   <div class="lock-box">
@@ -505,6 +549,15 @@ var USERS = [
 var DEPT_NAME = "جالو";               // اسم القسم الذي يظهر في الرسالة
 var CURRENCY  = "د.ل";                // عملة العرض
 var COUNTRY_CODE = "218";             // مفتاح ليبيا لواتساب
+/* إعدادات الفاتورة: التعريفات (دينار/كيلوواط) والرسوم الثابتة — عدّلها عند تغيّر الأسعار */
+var TARIFFS = [
+  { key:"home", label:"منزلي (0.04)",        rate:0.04 },
+  { key:"agri", label:"زراعي (0.04)",        rate:0.04 },
+  { key:"comm", label:"تجاري (0.08)",        rate:0.08 },
+  { key:"bank", label:"أقساط مصرفية (0.025)", rate:0.025 }
+];
+var STAMP_TAX = 0.5;   // ضريبة الدمغة
+var METER_FEE = 1;     // أجرة العداد
 var DB_NAME="jibaya_db", STORE="dataset", KEY="current";
 var PAGE=40;                 // عدد النتائج المعروضة في الدفعة
 var rows=[];                 // كل السجلات {__i, ...columns, __s: نص البحث}
@@ -993,11 +1046,16 @@ function makeCard(row,q){
       primaryHtml+=fieldHtml(c,v);
     }
   });
-  var html=primaryHtml;
+  var canInvoice = !!readingCol();
+  var html=(canInvoice?'<button class="inv-btn" type="button">🧾 إصدار فاتورة</button>':"")+primaryHtml;
   if(minorCount){
     html+='<details class="more-fields"><summary>حقول إضافية ('+minorCount+')</summary>'+minorHtml+'</details>';
   }
   body.innerHTML=html;
+  if(canInvoice){
+    var ib=body.querySelector(".inv-btn");
+    if(ib) ib.addEventListener("click",function(ev){ ev.stopPropagation(); openInvoice(row); });
+  }
 
   head.querySelector(".rcard-check").addEventListener("click",function(ev){
     ev.stopPropagation(); toggleSelect(row, card);
@@ -1269,6 +1327,113 @@ function openContact(){
 function closeContact(){ $("cOverlay").classList.remove("show"); $("cSheet").classList.remove("show"); }
 $("selContact").addEventListener("click",openContact);
 $("cOverlay").addEventListener("click",closeContact);
+
+/* ============================================================
+   إصدار فاتورة تقريبية
+   ============================================================ */
+var invRow=null;
+function readingCol(){ for(var i=0;i<headers.length;i++){ if(/^القراءة$|القراءة الحالية|^القراءه$/.test(headers[i])) return headers[i]; } return null; }
+function multiplierCol(){ for(var i=0;i<headers.length;i++){ if(/مضاعف/.test(headers[i])) return headers[i]; } return null; }
+function addrCol(){ for(var i=0;i<headers.length;i++){ if(/عنوان/.test(headers[i])) return headers[i]; } return null; }
+function guessTariff(row){
+  var at=instCols.type?String(row[instCols.type]||""):"";
+  var ct=catCol?String(row[catCol]||""):"";
+  if(/قسط مصرف/.test(at)) return "bank";
+  if(/تجار/.test(ct)) return "comm";
+  if(/زراع/.test(ct)) return "agri";
+  return "home";
+}
+function invData(){
+  var prev=parseFloat($("invPrev").value)||0;
+  var currRaw=$("invCurr").value.trim(), curr=parseFloat(currRaw);
+  var mult=parseFloat($("invMult").value)||1;
+  var tk=$("invTariff").value, t=TARIFFS.filter(function(x){return x.key===tk})[0]||TARIFFS[0];
+  var hasCurr = currRaw!=="" && !isNaN(curr);
+  var kwh = hasCurr ? (curr-prev)*mult : 0;
+  var energy = kwh*t.rate, total = energy + STAMP_TAX + METER_FEE;
+  return {prev:prev,curr:hasCurr?curr:null,mult:mult,tariff:t,kwh:kwh,energy:energy,total:total,hasCurr:hasCurr};
+}
+function computeInvoice(){
+  var d=invData();
+  $("invWarn").style.display=(d.hasCurr && d.kwh<0)?"block":"none";
+  function r(l,v){ return '<div class="inv-row"><span>'+l+'</span><span>'+v+'</span></div>'; }
+  var o="";
+  o+=r("الاستهلاك", (d.hasCurr?fmtNum(d.kwh):"—")+" ك.و.س");
+  o+=r("قيمة الاستهلاك × "+d.tariff.rate, (d.hasCurr?fmtNum(d.energy):"—")+" "+CURRENCY);
+  o+=r("ضريبة الدمغة", fmtNum(STAMP_TAX)+" "+CURRENCY);
+  o+=r("أجرة العداد", fmtNum(METER_FEE)+" "+CURRENCY);
+  o+='<div class="inv-row total"><span>الإجمالي</span><span>'+(d.hasCurr?fmtNum(d.total):"—")+" "+CURRENCY+'</span></div>';
+  $("invOut").innerHTML=o;
+}
+function invoiceText(){
+  var d=invData(), info=acctInfo(invRow);
+  return "🧾 فاتورة تقريبية — قسم جباية "+DEPT_NAME+"\n"+
+    "المشترك: "+info.name+(info.pt?"\nرقم النقطة: "+info.pt:"")+"\n"+
+    "التاريخ: "+todayISO()+"\n————————————\n"+
+    "القراءة السابقة: "+fmtNum(d.prev)+"\n"+
+    "القراءة الحالية: "+(d.hasCurr?fmtNum(d.curr):"—")+"\n"+
+    "الاستهلاك: "+fmtNum(d.kwh)+" ك.و.س\n"+
+    "التعريفة: "+d.tariff.rate+" د.ل/ك.و.س\n"+
+    "قيمة الاستهلاك: "+fmtNum(d.energy)+" "+CURRENCY+"\n"+
+    "ضريبة الدمغة: "+fmtNum(STAMP_TAX)+" "+CURRENCY+"\n"+
+    "أجرة العداد: "+fmtNum(METER_FEE)+" "+CURRENCY+"\n————————————\n"+
+    "الإجمالي: "+fmtNum(d.total)+" "+CURRENCY+"\n\nنأمل تسديد القيمة. شكراً لتعاونكم.";
+}
+function openInvoice(row){
+  invRow=row;
+  var info=acctInfo(row), rc=readingCol(), mc=multiplierCol(), ac=addrCol();
+  var prev=rc?debtNum(row[rc]):NaN, mult=mc?debtNum(row[mc]):1; if(isNaN(mult)||mult<=0)mult=1;
+  $("invWho").innerHTML="<b>"+escapeHtml(info.name)+"</b>"+(info.pt?" — نقطة "+escapeHtml(info.pt):"")+
+    (catCol?"<br>"+escapeHtml(String(row[catCol]||"")):"")+(ac&&row[ac]?" · "+escapeHtml(String(row[ac])):"");
+  $("invPrev").value=isNaN(prev)?"":prev;
+  $("invCurr").value=""; $("invMult").value=mult;
+  var sel=$("invTariff"); sel.innerHTML="";
+  TARIFFS.forEach(function(t){ var op=document.createElement("option"); op.value=t.key; op.textContent=t.label; sel.appendChild(op); });
+  sel.value=guessTariff(row);
+  computeInvoice();
+  $("invOverlay").classList.add("show"); $("invSheet").classList.add("show");
+  setTimeout(function(){ $("invCurr").focus(); },250);
+}
+function closeInvoice(){ $("invOverlay").classList.remove("show"); $("invSheet").classList.remove("show"); }
+function fallbackCopy(t){ try{ var ta=document.createElement("textarea"); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand("copy"); document.body.removeChild(ta); toast("تم نسخ الفاتورة"); }catch(e){ toast("تعذّر النسخ"); } }
+function printInvoice(){
+  var d=invData(), info=acctInfo(invRow);
+  function tr(a,b){ return '<tr><td>'+escapeHtml(a)+'</td><td>'+escapeHtml(String(b))+'</td></tr>'; }
+  var html='<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>فاتورة</title>'+
+    '<style>body{font-family:Tahoma,Arial,sans-serif;padding:20px;max-width:420px;margin:auto;color:#111}'+
+    'h2{text-align:center;margin:0 0 2px}.c{text-align:center;color:#555;font-size:13px;margin-bottom:14px}'+
+    'table{width:100%;border-collapse:collapse}td{padding:7px 4px;border-bottom:1px solid #eee;font-size:14px}'+
+    'td:last-child{text-align:left;font-weight:bold}.tot td{border-top:2px solid #0f766e;border-bottom:none;'+
+    'font-size:19px;color:#0f766e;padding-top:12px}</style></head><body>'+
+    '<h2>فاتورة تقريبية</h2><div class="c">قسم جباية '+escapeHtml(DEPT_NAME)+' — '+todayISO()+'</div><table>'+
+    tr("المشترك",info.name)+(info.pt?tr("رقم النقطة",info.pt):"")+
+    tr("القراءة السابقة",fmtNum(d.prev))+tr("القراءة الحالية",fmtNum(d.curr))+
+    tr("الاستهلاك",fmtNum(d.kwh)+" ك.و.س")+tr("التعريفة",d.tariff.rate+" د.ل/ك.و.س")+
+    tr("قيمة الاستهلاك",fmtNum(d.energy)+" "+CURRENCY)+tr("ضريبة الدمغة",fmtNum(STAMP_TAX)+" "+CURRENCY)+
+    tr("أجرة العداد",fmtNum(METER_FEE)+" "+CURRENCY)+
+    '<tr class="tot"><td>الإجمالي</td><td>'+fmtNum(d.total)+" "+CURRENCY+'</td></tr></table></body></html>';
+  var w=window.open("","_blank");
+  if(!w){ toast("اسمح بالنوافذ المنبثقة للطباعة"); return; }
+  w.document.write(html); w.document.close(); w.focus(); setTimeout(function(){ try{w.print();}catch(e){} },400);
+}
+["invPrev","invCurr","invMult"].forEach(function(id){ $(id).addEventListener("input",computeInvoice); });
+$("invTariff").addEventListener("change",computeInvoice);
+$("invOverlay").addEventListener("click",closeInvoice);
+$("invWa").addEventListener("click",function(){
+  var d=invData(); if(!d.hasCurr){ toast("أدخل القراءة الحالية"); return; }
+  var info=acctInfo(invRow); if(!info.phone){ toast("لا يوجد رقم هاتف لهذا الحساب"); return; }
+  window.open("https://wa.me/"+waNumber(info.phone)+"?text="+encodeURIComponent(invoiceText()),"_blank");
+});
+$("invCopy").addEventListener("click",function(){
+  var d=invData(); if(!d.hasCurr){ toast("أدخل القراءة الحالية"); return; }
+  var t=invoiceText();
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(t).then(function(){toast("تم نسخ الفاتورة");},function(){fallbackCopy(t);}); }
+  else fallbackCopy(t);
+});
+$("invPrint").addEventListener("click",function(){
+  var d=invData(); if(!d.hasCurr){ toast("أدخل القراءة الحالية"); return; }
+  printInvoice();
+});
 
 /* ---- الصلاحية الزمنية (قفل التطبيق) ---- */
 function todayISO(){var d=new Date();return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);}
