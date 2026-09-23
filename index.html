@@ -306,6 +306,23 @@
   @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .inv-row.total{color:var(--brand)}}
   .inv-warn{color:var(--danger);font-size:.85rem;font-weight:700;margin-bottom:10px;display:none}
   .inv-actions{display:flex;flex-direction:column;gap:8px}
+  /* الملاحظات الميدانية */
+  .note-btn{display:block;width:100%;padding:10px;margin-bottom:10px;background:#fff7ed;color:#b45309;
+    border:1.5px solid #fed7aa;border-radius:10px;font-weight:800;font-family:inherit;font-size:.9rem;cursor:pointer}
+  :root[data-theme="dark"] .note-btn{background:#3a2a12;color:#fbbf24;border-color:#57420f}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .note-btn{background:#3a2a12;color:#fbbf24;border-color:#57420f}}
+  .card-flag{background:#f59e0b;color:#fff;border-radius:6px;font-size:.68rem;font-weight:800;padding:2px 6px;flex:0 0 auto;white-space:nowrap}
+  .note-item{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:12px;margin-bottom:10px}
+  .ni-head{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+  .ni-name{font-weight:800}
+  .ni-type{font-size:.78rem;color:var(--brand-d);font-weight:700;flex:0 0 auto}
+  :root[data-theme="dark"] .ni-type{color:var(--brand)}
+  @media(prefers-color-scheme:dark){:root:not([data-theme="light"]) .ni-type{color:var(--brand)}}
+  .ni-val{margin-top:4px;font-size:.92rem;color:var(--text);word-break:break-word}
+  .ni-meta{font-size:.75rem;color:var(--muted);margin-top:3px}
+  .ni-actions{display:flex;gap:8px;margin-top:8px}
+  .ni-btn{padding:6px 14px;border-radius:8px;border:none;font-weight:700;font-size:.8rem;cursor:pointer;font-family:inherit}
+  .ni-done{background:#16a34a;color:#fff}.ni-del{background:var(--chip);color:var(--danger)}
 </style>
 </head>
 <body>
@@ -316,6 +333,7 @@
         <div class="h-title" id="appTitle">منظومة جباية الإيرادات</div>
         <div class="h-sub" id="appSub">بحث سريع في بيانات المشتركين</div>
       </div>
+      <button class="icon-btn" id="notesBtn" title="الملاحظات الميدانية" style="position:relative">📝<span class="fbadge" id="notesBadge" style="position:absolute;top:-4px;inset-inline-start:-4px">0</span></button>
       <button class="icon-btn" id="reportBtn" title="كشوفات قابلة للطباعة">📋</button>
       <button class="icon-btn" id="refreshBtn" title="تحديث (جلب أحدث نسخة)">🔄</button>
       <button class="icon-btn" id="installBtn" title="تثبيت التطبيق" style="display:none">⬇️</button>
@@ -432,6 +450,30 @@
   <div class="msg-preview" id="msgPreview"></div>
   <div class="sec-label" style="margin-top:6px">اختر رقم الهاتف:</div>
   <div id="cList"></div>
+</div>
+
+<!-- شاشة إضافة ملاحظة ميدانية -->
+<div class="overlay" id="nOverlay"></div>
+<div class="sheet" id="nSheet">
+  <div class="grabber"></div>
+  <h2>📝 ملاحظة / تعديل ميداني</h2>
+  <div class="inv-who" id="nWho"></div>
+  <label class="inv-f" style="display:block;margin-bottom:10px"><span>نوع الملاحظة</span><select id="nType"></select></label>
+  <label class="inv-f" style="display:block;margin-bottom:12px"><span id="nFieldLabel">القيمة</span><input type="text" id="nValue"></label>
+  <div class="inv-actions"><button class="btn btn-primary" id="nSave">💾 حفظ الملاحظة</button></div>
+</div>
+
+<!-- شاشة قائمة الملاحظات الميدانية -->
+<div class="overlay" id="nlOverlay"></div>
+<div class="sheet" id="nlSheet">
+  <div class="grabber"></div>
+  <h2>📋 الملاحظات الميدانية</h2>
+  <div class="inv-row" id="nlSummary" style="background:var(--brand-l);border-radius:10px;padding:10px 12px;margin-bottom:10px;font-weight:700"></div>
+  <div class="inv-actions" style="flex-direction:row;gap:8px;margin-bottom:12px">
+    <button class="btn btn-primary" id="nlSend" style="background:#25d366;flex:1">📲 إرسال واتساب</button>
+    <button class="btn btn-ghost" id="nlPrint" style="flex:0 0 auto">🖨️ PDF</button>
+  </div>
+  <div id="nlList"></div>
 </div>
 
 <!-- شاشة توليد الكشوفات -->
@@ -594,6 +636,15 @@ var TARIFFS = [
 ];
 var STAMP_TAX = 0.5;   // ضريبة الدمغة
 var METER_FEE = 1;     // أجرة العداد
+/* أنواع الملاحظات الميدانية */
+var NOTE_TYPES = [
+  { key:"status",  label:"ملاحظة / حالة",     field:"الملاحظة (عداد مفكوك، يحتاج شرطة كهربائية، مقفل...)", input:"text" },
+  { key:"phone",   label:"تغيير رقم الهاتف",   field:"رقم الهاتف الجديد", input:"tel" },
+  { key:"address", label:"تغيير العنوان",      field:"العنوان الجديد", input:"text" },
+  { key:"ashari",  label:"تغيير الاشاري",      field:"الاشاري الجديد", input:"text" },
+  { key:"cash",    label:"تحصيل نقدي",         field:"المبلغ المستلم نقداً", input:"number" }
+];
+function noteTypeLabel(k){ for(var i=0;i<NOTE_TYPES.length;i++){ if(NOTE_TYPES[i].key===k) return NOTE_TYPES[i].label; } return k; }
 var DB_NAME="jibaya_db", STORE="dataset", KEY="current";
 var PAGE=40;                 // عدد النتائج المعروضة في الدفعة
 var rows=[];                 // كل السجلات {__i, ...columns, __s: نص البحث}
@@ -1047,6 +1098,7 @@ function makeCard(row,q){
     balHtml='<span class="bal-pill '+balClass(debtNum(row[debtCol]))+'">'+escapeHtml(String(row[debtCol]))+'</span>';
   }
 
+  var flag = notedPts[acctPt(row)] ? '<span class="card-flag">📝</span>' : '';
   var head=document.createElement("div"); head.className="rcard-head";
   head.innerHTML='<div class="rcard-check">✓</div>'+
     '<div class="avatar">'+escapeHtml(initial)+'</div>'+
@@ -1054,7 +1106,7 @@ function makeCard(row,q){
       '<div class="rcard-title">'+highlight(String(titleVal),q)+'</div>'+
       (metaTxt?'<div class="rcard-meta">'+highlight(metaTxt,q)+'</div>':'')+
     '</div>'+
-    balHtml+
+    flag+balHtml+
     '<div class="expand-ico">▼</div>';
 
   var body=document.createElement("div"); body.className="rcard-body";
@@ -1083,7 +1135,8 @@ function makeCard(row,q){
     }
   });
   var canInvoice = !!readingCol();
-  var html=(canInvoice?'<button class="inv-btn" type="button">🧾 إصدار فاتورة</button>':"")+primaryHtml;
+  var html=(canInvoice?'<button class="inv-btn" type="button">🧾 إصدار فاتورة</button>':"")+
+           '<button class="note-btn" type="button">📝 ملاحظة ميدانية</button>'+primaryHtml;
   if(minorCount){
     html+='<details class="more-fields"><summary>حقول إضافية ('+minorCount+')</summary>'+minorHtml+'</details>';
   }
@@ -1092,6 +1145,8 @@ function makeCard(row,q){
     var ib=body.querySelector(".inv-btn");
     if(ib) ib.addEventListener("click",function(ev){ ev.stopPropagation(); openInvoice(row); });
   }
+  var nb=body.querySelector(".note-btn");
+  if(nb) nb.addEventListener("click",function(ev){ ev.stopPropagation(); openNote(row); });
 
   head.querySelector(".rcard-check").addEventListener("click",function(ev){
     ev.stopPropagation(); toggleSelect(row, card);
@@ -1606,6 +1661,119 @@ $("reportBtn").addEventListener("click",openReport);
 $("rOverlay").addEventListener("click",closeReport);
 $("rGen").addEventListener("click",generateReport);
 
+/* ============================================================
+   الملاحظات الميدانية (حفظ محلي + إرسال واتساب)
+   ============================================================ */
+var notedPts=Object.create(null), noteRow=null;
+function notesKey(){ return "notes_"+(currentUser()||"anon"); }
+function loadNotes(){ try{ return JSON.parse(localStorage.getItem(notesKey())||"[]"); }catch(e){ return []; } }
+function saveNotes(arr){ try{ localStorage.setItem(notesKey(), JSON.stringify(arr)); }catch(e){} }
+function refreshNotesState(){
+  var arr=loadNotes(); notedPts=Object.create(null);
+  arr.forEach(function(n){ if(n.pt) notedPts[n.pt]=true; });
+  var b=$("notesBadge"); if(b){ b.textContent=arr.length; b.classList.toggle("show",arr.length>0); }
+}
+function acctPt(row){ var kc=pointKeyCol(headers); return kc?String(row[kc]||"").trim():("i"+row.__i); }
+
+// إضافة ملاحظة
+function openNote(row){
+  noteRow=row; var info=acctInfo(row);
+  $("nWho").innerHTML="<b>"+escapeHtml(info.name)+"</b>"+(info.pt?" — نقطة "+escapeHtml(info.pt):"");
+  var sel=$("nType"); sel.innerHTML="";
+  NOTE_TYPES.forEach(function(t){ var o=document.createElement("option"); o.value=t.key; o.textContent=t.label; sel.appendChild(o); });
+  syncNoteField();
+  $("nValue").value="";
+  $("nOverlay").classList.add("show"); $("nSheet").classList.add("show");
+  setTimeout(function(){ $("nValue").focus(); },250);
+}
+function syncNoteField(){
+  var k=$("nType").value, t=NOTE_TYPES.filter(function(x){return x.key===k})[0]||NOTE_TYPES[0];
+  $("nFieldLabel").textContent=t.field;
+  var inp=$("nValue"); inp.setAttribute("inputmode", t.input==="number"?"decimal":(t.input==="tel"?"numeric":"text"));
+  inp.type = t.input==="number"?"number":"text";
+}
+$("nType").addEventListener("change",syncNoteField);
+function closeNote(){ $("nOverlay").classList.remove("show"); $("nSheet").classList.remove("show"); }
+$("nOverlay").addEventListener("click",closeNote);
+$("nSave").addEventListener("click",function(){
+  var val=$("nValue").value.trim(); if(!val){ toast("أدخل القيمة أو الملاحظة"); return; }
+  var info=acctInfo(noteRow);
+  var arr=loadNotes();
+  arr.push({ id:Date.now()+"_"+Math.random().toString(36).slice(2,7), pt:acctPt(noteRow),
+    name:info.name, type:$("nType").value, value:val, at:todayISO(), by:currentUser() });
+  saveNotes(arr); refreshNotesState(); closeNote(); render();
+  toast("تم حفظ الملاحظة");
+});
+
+// قائمة الملاحظات
+function openNotesList(){ renderNotesList(); $("nlOverlay").classList.add("show"); $("nlSheet").classList.add("show"); }
+function closeNotesList(){ $("nlOverlay").classList.remove("show"); $("nlSheet").classList.remove("show"); }
+function renderNotesList(){
+  var arr=loadNotes(), list=$("nlList"); list.innerHTML="";
+  var cash=0; arr.forEach(function(n){ if(n.type==="cash"){ var a=parseFloat(n.value)||0; cash+=a; } });
+  $("nlSummary").innerHTML="عدد الملاحظات: "+arr.length.toLocaleString('en-US')+
+    (cash>0?" · إجمالي التحصيل النقدي: "+fmtNum(cash)+" "+CURRENCY:"");
+  if(!arr.length){ list.innerHTML='<div class="ci-sub" style="text-align:center;padding:20px">لا توجد ملاحظات محفوظة.</div>'; return; }
+  arr.slice().reverse().forEach(function(n){
+    var it=document.createElement("div"); it.className="note-item";
+    it.innerHTML='<div class="ni-head"><div><div class="ni-name">'+escapeHtml(n.name)+'</div>'+
+      '<div class="ni-meta">نقطة '+escapeHtml(n.pt||"")+' · '+escapeHtml(n.at||"")+'</div></div>'+
+      '<div class="ni-type">'+escapeHtml(noteTypeLabel(n.type))+'</div></div>'+
+      '<div class="ni-val">'+escapeHtml(n.value)+(n.type==="cash"?" "+CURRENCY:"")+'</div>'+
+      '<div class="ni-actions"><button class="ni-btn ni-done" data-done="'+n.id+'">✓ تمّ الإجراء</button>'+
+      '<button class="ni-btn ni-del" data-del="'+n.id+'">حذف</button></div>';
+    list.appendChild(it);
+  });
+  list.querySelectorAll("[data-done]").forEach(function(b){ b.addEventListener("click",function(){ removeNote(b.getAttribute("data-done")); }); });
+  list.querySelectorAll("[data-del]").forEach(function(b){ b.addEventListener("click",function(){ if(confirm("حذف هذه الملاحظة؟")) removeNote(b.getAttribute("data-del")); }); });
+}
+function removeNote(id){
+  var arr=loadNotes().filter(function(n){ return n.id!==id; });
+  saveNotes(arr); refreshNotesState(); renderNotesList(); render();
+}
+function notesText(){
+  var arr=loadNotes(); if(!arr.length) return "";
+  var t="📝 ملاحظات ميدانية — قسم جباية "+DEPT_NAME+"\nالموظف: "+(currentUser()||"")+"\nالتاريخ: "+todayISO()+"\n";
+  var cash=0;
+  arr.forEach(function(n,i){
+    t+="\n"+(i+1)+") "+n.name+(n.pt?" (نقطة "+n.pt+")":"")+"\n   "+noteTypeLabel(n.type)+": "+n.value+(n.type==="cash"?" "+CURRENCY:"");
+    if(n.type==="cash"){ cash+=parseFloat(n.value)||0; }
+  });
+  if(cash>0) t+="\n\n💰 إجمالي التحصيل النقدي: "+fmtNum(cash)+" "+CURRENCY;
+  t+="\n\nيرجى الإجراء اللازم.";
+  return t;
+}
+$("nlSend").addEventListener("click",function(){
+  var arr=loadNotes(); if(!arr.length){ toast("لا توجد ملاحظات"); return; }
+  // wa.me بدون رقم: يفتح واتساب ليختار الموظف المسؤول من جهات اتصاله
+  window.open("https://wa.me/?text="+encodeURIComponent(notesText()),"_blank");
+});
+$("nlPrint").addEventListener("click",function(){
+  var arr=loadNotes(); if(!arr.length){ toast("لا توجد ملاحظات"); return; }
+  var body="", cash=0;
+  arr.forEach(function(n,i){
+    if(n.type==="cash") cash+=parseFloat(n.value)||0;
+    body+='<tr><td>'+(i+1)+'</td><td class="nm">'+escapeHtml(n.name)+'</td><td>'+escapeHtml(n.pt||"")+'</td>'+
+      '<td>'+escapeHtml(noteTypeLabel(n.type))+'</td><td class="adr">'+escapeHtml(n.value)+(n.type==="cash"?" "+CURRENCY:"")+'</td><td>'+escapeHtml(n.at||"")+'</td></tr>';
+  });
+  var html='<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملاحظات ميدانية</title>'+
+    '<style>@page{size:A4;margin:10mm}body{font-family:Tahoma,Arial,sans-serif;color:#111}'+
+    'h1{font-size:18px;margin:0 0 2px}.c{font-size:12px;color:#555;margin-bottom:10px}'+
+    'table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #999;padding:5px 6px;text-align:center}'+
+    'th{background:#0f766e;color:#fff}td.nm{text-align:right}td.adr{text-align:right}'+
+    '.ft{margin-top:8px;font-weight:bold;font-size:13px}.noprint{text-align:center;margin-top:14px}</style></head><body>'+
+    '<h1>ملاحظات ميدانية — قسم جباية '+escapeHtml(DEPT_NAME)+'</h1>'+
+    '<div class="c">الموظف: '+escapeHtml(currentUser()||"")+' · التاريخ: '+todayISO()+' · العدد: '+arr.length+'</div>'+
+    '<table><thead><tr><th>#</th><th>الاسم</th><th>رقم النقطة</th><th>النوع</th><th>التفاصيل</th><th>التاريخ</th></tr></thead><tbody>'+body+'</tbody></table>'+
+    (cash>0?'<div class="ft">إجمالي التحصيل النقدي: '+fmtNum(cash)+' '+CURRENCY+'</div>':"")+
+    '<div class="noprint"><button onclick="window.print()" style="padding:10px 24px;font-size:15px;background:#0f766e;color:#fff;border:none;border-radius:8px">🖨️ طباعة / حفظ PDF</button></div>'+
+    '</body></html>';
+  var w=window.open("","_blank"); if(!w){ toast("اسمح بالنوافذ المنبثقة"); return; }
+  w.document.write(html); w.document.close(); w.focus();
+});
+$("notesBtn").addEventListener("click",openNotesList);
+$("nlOverlay").addEventListener("click",closeNotesList);
+
 /* ---- الصلاحية الزمنية (قفل التطبيق) ---- */
 function todayISO(){var d=new Date();return d.getFullYear()+"-"+("0"+(d.getMonth()+1)).slice(-2)+"-"+("0"+d.getDate()).slice(-2);}
 function effectiveValid(){ var ov=localStorage.getItem("jibaya_valid_ov")||""; return (ov&&ov>VALID_UNTIL)?ov:VALID_UNTIL; }
@@ -1780,6 +1948,7 @@ function cfgUrl(u){ if(!u) return u; try{ return CONFIG.enc?decodeURIComponent(e
 
 function startApp(){
   showUserBadge();
+  refreshNotesState();
   // نسخة النشر: إخفاء طريقة تحميل الملف والرابط تماماً عن الموظفين
   if(CONFIG.base){
     var fs=$("fileSec"), od=$("orDivider"), db=$("dataBtn");
