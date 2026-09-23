@@ -447,9 +447,12 @@
     <label class="inv-f"><span>ترتيب حسب</span><select id="rSort">
       <option value="debt">الدين (الأعلى أولاً)</option>
       <option value="name">الاسم (أبجدي)</option>
+      <option value="ashari">الاشاري (جغرافياً)</option>
       <option value="read">تاريخ القراءة (الأحدث)</option>
       <option value="pay">تاريخ السداد (الأحدث)</option>
     </select></label>
+    <label class="inv-f"><span>المربع (الجزء الأول من الاشاري)</span><input type="text" id="rBlock" inputmode="numeric" placeholder="الكل"></label>
+    <label class="inv-f"><span>الشارع (الجزء الثاني)</span><input type="text" id="rStreet" inputmode="numeric" placeholder="الكل"></label>
     <label class="inv-f"><span>تاريخ القراءة من</span><input type="date" id="rReadFrom"></label>
     <label class="inv-f"><span>تاريخ القراءة إلى</span><input type="date" id="rReadTo"></label>
     <label class="inv-f"><span>تاريخ السداد من</span><input type="date" id="rPayFrom"></label>
@@ -1484,24 +1487,39 @@ $("invPrint").addEventListener("click",function(){
 function meterColR(){ for(var i=0;i<headers.length;i++){ if(/رقم العداد/.test(headers[i])) return headers[i]; } return null; }
 function readDateCol(){ for(var i=0;i<headers.length;i++){ if(/تاريخ القراءة/.test(headers[i])) return headers[i]; } return null; }
 function payDateCol(){ for(var i=0;i<headers.length;i++){ if(/تاريخ السداد/.test(headers[i])) return headers[i]; } return null; }
+function ashariCol(){ for(var i=0;i<headers.length;i++){ if(/الاشاري|الإشاري|اشاري|إشاري/.test(headers[i])) return headers[i]; } return null; }
+// مطابقة جزء من الاشاري (يتجاهل الأصفار البادئة: "5" يطابق "005")
+function segMatch(seg,inp){
+  seg=String(seg||"").trim(); inp=String(inp).trim(); if(!inp) return true;
+  if(seg===inp) return true;
+  var a=parseInt(seg,10), b=parseInt(inp,10);
+  return (!isNaN(a)&&!isNaN(b)&&a===b);
+}
 
 function reportFilter(){
   var br=$("rBranch").value, ty=$("rType").value, dmin=parseFloat($("rDebt").value);
   var rf=$("rReadFrom").value, rt=$("rReadTo").value, pf=$("rPayFrom").value, pt=$("rPayTo").value;
   var onlyPhone=$("rHasPhone").checked, withInst=$("rInstToo").checked, sort=$("rSort").value;
-  var rdCol=readDateCol(), pdCol=payDateCol();
+  var block=$("rBlock").value.trim(), street=$("rStreet").value.trim();
+  var rdCol=readDateCol(), pdCol=payDateCol(), ashCol=ashariCol();
   var out=rows.filter(function(r){
     if(!withInst && isInstallment(r)) return false;
     if(br && branchCol && r[branchCol]!==br) return false;
     if(ty && catCol && r[catCol]!==ty) return false;
     if(!isNaN(dmin)){ var d=debtCol?debtNum(r[debtCol]):NaN; if(isNaN(d)||d<dmin) return false; }
     if(onlyPhone && !phoneOf(r)) return false;
+    if(ashCol && (block||street)){
+      var seg=String(r[ashCol]||"").split("-");
+      if(block && !segMatch(seg[0],block)) return false;
+      if(street && !segMatch(seg[1],street)) return false;
+    }
     if(rdCol){ var rv=String(r[rdCol]||""); if(rf && (rv===""||rv<rf)) return false; if(rt && (rv===""||rv>rt)) return false; }
     if(pdCol){ var pv=String(r[pdCol]||""); if(pf && (pv===""||pv<pf)) return false; if(pt && (pv===""||pv>pt)) return false; }
     return true;
   });
   if(sort==="debt" && debtCol) out.sort(function(a,b){ var x=debtNum(a[debtCol]),y=debtNum(b[debtCol]); return (isNaN(y)?-Infinity:y)-(isNaN(x)?-Infinity:x); });
   else if(sort==="name" && titleCol) out.sort(function(a,b){ return String(a[titleCol]||"").localeCompare(String(b[titleCol]||""),'ar'); });
+  else if(sort==="ashari" && ashCol) out.sort(function(a,b){ return String(a[ashCol]||"").localeCompare(String(b[ashCol]||"")); });
   else if(sort==="read" && rdCol) out.sort(function(a,b){ return String(b[rdCol]||"").localeCompare(String(a[rdCol]||"")); });
   else if(sort==="pay" && pdCol) out.sort(function(a,b){ return String(b[pdCol]||"").localeCompare(String(a[pdCol]||"")); });
   return out;
@@ -1535,7 +1553,7 @@ function closeReport(){ $("rOverlay").classList.remove("show"); $("rSheet").clas
 function generateReport(){
   var list=reportFilter(), title=($("rTitle").value||"كشف").trim();
   if(!list.length){ toast("لا توجد حسابات مطابقة"); return; }
-  var kc=pointKeyCol(headers), mc=meterColR(), pc=payDateCol();
+  var kc=pointKeyCol(headers), mc=meterColR(), pc=payDateCol(), ash=ashariCol(), adr=addrCol();
   var td=0, body="";
   list.forEach(function(r,i){
     var d=debtCol?debtNum(r[debtCol]):NaN; if(!isNaN(d)&&d>0) td+=d;
@@ -1548,6 +1566,8 @@ function generateReport(){
       '<td class="db">'+escapeHtml(debtCol?String(r[debtCol]||""):"")+'</td>'+
       '<td>'+escapeHtml(pc?String(r[pc]||""):"")+'</td>'+
       '<td class="ph">'+escapeHtml(phoneOf(r))+'</td>'+
+      (ash?'<td class="ash">'+escapeHtml(String(r[ash]||""))+'</td>':"")+
+      (adr?'<td class="adr">'+escapeHtml(String(r[adr]||""))+'</td>':"")+
       '<td class="note"></td>'+
     '</tr>';
   });
@@ -1561,13 +1581,15 @@ function generateReport(){
     'th,td{border:1px solid #999;padding:4px 5px;text-align:center}'+
     'thead{display:table-header-group}th{background:#0f766e;color:#fff;font-size:12px}'+
     'td.nm{text-align:right;white-space:nowrap}td.ph{direction:ltr}td.db{font-weight:bold}'+
-    'td.note{width:90px}tr:nth-child(even) td{background:#f3f6f6}'+
+    'td.ash{direction:ltr;white-space:nowrap;font-size:11px}td.adr{text-align:right;font-size:11px}'+
+    'td.note{width:70px}tr:nth-child(even) td{background:#f3f6f6}'+
     '.ft{margin-top:8px;font-size:12px;display:flex;justify-content:space-between;font-weight:bold}'+
     '@media print{.noprint{display:none}}</style></head><body>'+
     '<div class="hd"><div><h1>'+escapeHtml(title)+'</h1><div style="font-size:12px;color:#555">قسم جباية '+escapeHtml(DEPT_NAME)+branchTxt+'</div></div>'+
     '<div class="m">التاريخ: '+todayISO()+'<br>عدد الحسابات: '+list.length+'</div></div>'+
     '<table><thead><tr>'+
-      '<th>#</th><th>رقم النقطة</th><th>الاسم</th><th>نوع الاستهلاك</th><th>رقم العداد</th><th>الدين المستحق</th><th>آخر سداد</th><th>رقم الهاتف</th><th>ملاحظات</th>'+
+      '<th>#</th><th>رقم النقطة</th><th>الاسم</th><th>نوع الاستهلاك</th><th>رقم العداد</th><th>الدين المستحق</th><th>آخر سداد</th><th>رقم الهاتف</th>'+
+      (ash?'<th>الاشاري</th>':"")+(adr?'<th>العنوان</th>':"")+'<th>ملاحظات</th>'+
     '</tr></thead><tbody>'+body+'</tbody></table>'+
     '<div class="ft"><span>إجمالي الدين: '+fmtNum(td)+' '+CURRENCY+'</span><span>توقيع: ____________</span></div>'+
     '<div class="noprint" style="text-align:center;margin-top:14px"><button onclick="window.print()" style="padding:10px 24px;font-size:15px;background:#0f766e;color:#fff;border:none;border-radius:8px;cursor:pointer">🖨️ طباعة / حفظ PDF</button></div>'+
@@ -1577,7 +1599,7 @@ function generateReport(){
   w.document.write(html); w.document.close(); w.focus();
   closeReport();
 }
-["rBranch","rType","rDebt","rSort","rReadFrom","rReadTo","rPayFrom","rPayTo","rHasPhone","rInstToo"].forEach(function(id){
+["rBranch","rType","rDebt","rSort","rReadFrom","rReadTo","rPayFrom","rPayTo","rHasPhone","rInstToo","rBlock","rStreet"].forEach(function(id){
   var el=$(id); if(el){ el.addEventListener("input",updateReportCount); el.addEventListener("change",updateReportCount); }
 });
 $("reportBtn").addEventListener("click",openReport);
