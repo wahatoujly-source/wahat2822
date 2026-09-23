@@ -459,8 +459,12 @@
   <h2>📝 ملاحظة / تعديل ميداني</h2>
   <div class="inv-who" id="nWho"></div>
   <label class="inv-f" style="display:block;margin-bottom:10px"><span>نوع الملاحظة</span><select id="nType"></select></label>
-  <label class="inv-f" style="display:block;margin-bottom:12px"><span id="nFieldLabel">القيمة</span><input type="text" id="nValue"></label>
-  <div class="inv-actions"><button class="btn btn-primary" id="nSave">💾 حفظ الملاحظة</button></div>
+  <label class="inv-f" style="display:block;margin-bottom:10px"><span id="nFieldLabel">القيمة</span><input type="text" id="nValue"></label>
+  <div class="inv-grid">
+    <label class="inv-f"><span>الإجراء المتخذ</span><select id="nAction"><option value="">— بدون —</option></select></label>
+    <label class="inv-f"><span>القراءة الحالية (اختياري)</span><input type="number" id="nReading" inputmode="decimal"></label>
+  </div>
+  <div class="inv-actions" style="margin-top:12px"><button class="btn btn-primary" id="nSave">💾 حفظ الملاحظة</button></div>
 </div>
 
 <!-- شاشة قائمة الملاحظات الميدانية -->
@@ -645,6 +649,7 @@ var NOTE_TYPES = [
   { key:"cash",    label:"تحصيل نقدي",         field:"المبلغ المستلم نقداً", input:"number" }
 ];
 function noteTypeLabel(k){ for(var i=0;i<NOTE_TYPES.length;i++){ if(NOTE_TYPES[i].key===k) return NOTE_TYPES[i].label; } return k; }
+var NOTE_ACTIONS = ["إنذار","قطع","ملاحظة أخرى"];   // الإجراءات المتخذة
 var DB_NAME="jibaya_db", STORE="dataset", KEY="current";
 var PAGE=40;                 // عدد النتائج المعروضة في الدفعة
 var rows=[];                 // كل السجلات {__i, ...columns, __s: نص البحث}
@@ -1681,8 +1686,10 @@ function openNote(row){
   $("nWho").innerHTML="<b>"+escapeHtml(info.name)+"</b>"+(info.pt?" — نقطة "+escapeHtml(info.pt):"");
   var sel=$("nType"); sel.innerHTML="";
   NOTE_TYPES.forEach(function(t){ var o=document.createElement("option"); o.value=t.key; o.textContent=t.label; sel.appendChild(o); });
+  var asel=$("nAction"); asel.innerHTML='<option value="">— بدون —</option>';
+  NOTE_ACTIONS.forEach(function(a){ var o=document.createElement("option"); o.value=a; o.textContent=a; asel.appendChild(o); });
   syncNoteField();
-  $("nValue").value="";
+  $("nValue").value=""; $("nReading").value=""; asel.value="";
   $("nOverlay").classList.add("show"); $("nSheet").classList.add("show");
   setTimeout(function(){ $("nValue").focus(); },250);
 }
@@ -1696,11 +1703,13 @@ $("nType").addEventListener("change",syncNoteField);
 function closeNote(){ $("nOverlay").classList.remove("show"); $("nSheet").classList.remove("show"); }
 $("nOverlay").addEventListener("click",closeNote);
 $("nSave").addEventListener("click",function(){
-  var val=$("nValue").value.trim(); if(!val){ toast("أدخل القيمة أو الملاحظة"); return; }
+  var val=$("nValue").value.trim(), action=$("nAction").value, reading=$("nReading").value.trim();
+  if(!val && !action && !reading){ toast("أدخل قيمة أو إجراءً أو قراءة"); return; }
   var info=acctInfo(noteRow);
   var arr=loadNotes();
   arr.push({ id:Date.now()+"_"+Math.random().toString(36).slice(2,7), pt:acctPt(noteRow),
-    name:info.name, type:$("nType").value, value:val, at:todayISO(), by:currentUser() });
+    name:info.name, type:$("nType").value, value:val, action:action, reading:reading,
+    at:todayISO(), by:currentUser() });
   saveNotes(arr); refreshNotesState(); closeNote(); render();
   toast("تم حفظ الملاحظة");
 });
@@ -1716,10 +1725,14 @@ function renderNotesList(){
   if(!arr.length){ list.innerHTML='<div class="ci-sub" style="text-align:center;padding:20px">لا توجد ملاحظات محفوظة.</div>'; return; }
   arr.slice().reverse().forEach(function(n){
     var it=document.createElement("div"); it.className="note-item";
+    var extra="";
+    if(n.value) extra+='<div class="ni-val">'+escapeHtml(n.value)+(n.type==="cash"?" "+CURRENCY:"")+'</div>';
+    if(n.reading) extra+='<div class="ni-val">📊 القراءة الحالية: '+escapeHtml(n.reading)+'</div>';
+    if(n.action) extra+='<div class="ni-val">⚡ الإجراء: <b>'+escapeHtml(n.action)+'</b></div>';
     it.innerHTML='<div class="ni-head"><div><div class="ni-name">'+escapeHtml(n.name)+'</div>'+
       '<div class="ni-meta">نقطة '+escapeHtml(n.pt||"")+' · '+escapeHtml(n.at||"")+'</div></div>'+
       '<div class="ni-type">'+escapeHtml(noteTypeLabel(n.type))+'</div></div>'+
-      '<div class="ni-val">'+escapeHtml(n.value)+(n.type==="cash"?" "+CURRENCY:"")+'</div>'+
+      extra+
       '<div class="ni-actions"><button class="ni-btn ni-done" data-done="'+n.id+'">✓ تمّ الإجراء</button>'+
       '<button class="ni-btn ni-del" data-del="'+n.id+'">حذف</button></div>';
     list.appendChild(it);
@@ -1736,7 +1749,10 @@ function notesText(){
   var t="📝 ملاحظات ميدانية — قسم جباية "+DEPT_NAME+"\nالموظف: "+(currentUser()||"")+"\nالتاريخ: "+todayISO()+"\n";
   var cash=0;
   arr.forEach(function(n,i){
-    t+="\n"+(i+1)+") "+n.name+(n.pt?" (نقطة "+n.pt+")":"")+"\n   "+noteTypeLabel(n.type)+": "+n.value+(n.type==="cash"?" "+CURRENCY:"");
+    t+="\n"+(i+1)+") "+n.name+(n.pt?" (نقطة "+n.pt+")":"");
+    if(n.value) t+="\n   "+noteTypeLabel(n.type)+": "+n.value+(n.type==="cash"?" "+CURRENCY:"");
+    if(n.reading) t+="\n   القراءة الحالية: "+n.reading;
+    if(n.action) t+="\n   الإجراء المتخذ: "+n.action;
     if(n.type==="cash"){ cash+=parseFloat(n.value)||0; }
   });
   if(cash>0) t+="\n\n💰 إجمالي التحصيل النقدي: "+fmtNum(cash)+" "+CURRENCY;
@@ -1754,7 +1770,8 @@ $("nlPrint").addEventListener("click",function(){
   arr.forEach(function(n,i){
     if(n.type==="cash") cash+=parseFloat(n.value)||0;
     body+='<tr><td>'+(i+1)+'</td><td class="nm">'+escapeHtml(n.name)+'</td><td>'+escapeHtml(n.pt||"")+'</td>'+
-      '<td>'+escapeHtml(noteTypeLabel(n.type))+'</td><td class="adr">'+escapeHtml(n.value)+(n.type==="cash"?" "+CURRENCY:"")+'</td><td>'+escapeHtml(n.at||"")+'</td></tr>';
+      '<td>'+escapeHtml(noteTypeLabel(n.type))+'</td><td class="adr">'+escapeHtml(n.value||"")+(n.type==="cash"?" "+CURRENCY:"")+'</td>'+
+      '<td>'+escapeHtml(n.reading||"")+'</td><td>'+escapeHtml(n.action||"")+'</td><td>'+escapeHtml(n.at||"")+'</td></tr>';
   });
   var html='<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>ملاحظات ميدانية</title>'+
     '<style>@page{size:A4;margin:10mm}body{font-family:Tahoma,Arial,sans-serif;color:#111}'+
@@ -1764,7 +1781,7 @@ $("nlPrint").addEventListener("click",function(){
     '.ft{margin-top:8px;font-weight:bold;font-size:13px}.noprint{text-align:center;margin-top:14px}</style></head><body>'+
     '<h1>ملاحظات ميدانية — قسم جباية '+escapeHtml(DEPT_NAME)+'</h1>'+
     '<div class="c">الموظف: '+escapeHtml(currentUser()||"")+' · التاريخ: '+todayISO()+' · العدد: '+arr.length+'</div>'+
-    '<table><thead><tr><th>#</th><th>الاسم</th><th>رقم النقطة</th><th>النوع</th><th>التفاصيل</th><th>التاريخ</th></tr></thead><tbody>'+body+'</tbody></table>'+
+    '<table><thead><tr><th>#</th><th>الاسم</th><th>رقم النقطة</th><th>النوع</th><th>التفاصيل</th><th>القراءة الحالية</th><th>الإجراء</th><th>التاريخ</th></tr></thead><tbody>'+body+'</tbody></table>'+
     (cash>0?'<div class="ft">إجمالي التحصيل النقدي: '+fmtNum(cash)+' '+CURRENCY+'</div>':"")+
     '<div class="noprint"><button onclick="window.print()" style="padding:10px 24px;font-size:15px;background:#0f766e;color:#fff;border:none;border-radius:8px">🖨️ طباعة / حفظ PDF</button></div>'+
     '</body></html>';
